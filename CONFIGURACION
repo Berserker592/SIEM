@@ -1,0 +1,638 @@
+================================================================
+CISCO-ISP
+================================================================
+enable
+conf ter
+hostname R_ISP
+
+!Enrutamiento
+router ospf 10
+ router-id 1.1.1.1
+ passive-interface GigabitEthernet0/0
+ default-information originate
+ exit
+ 
+!Configuracion de interfaces, enrutamiento y nat
+interface GigabitEthernet0/0
+ ip address 10.0.8.253 255.255.255.0
+ ip nat outside
+ ip ospf 10 area 0       
+ no shut
+interface GigabitEthernet0/1
+ ip address 172.16.255.1 255.255.255.252
+ ip nat inside
+ ip ospf 10 area 0
+ no shut
+ exit
+ip route 0.0.0.0 0.0.0.0 10.0.8.1
+
+!CONFIGURACION NAT
+ip access-list extended NAT
+deny ip 192.168.0.0 0.0.255.255 192.168.0.0 0.0.255.255
+permit ip 192.168.0.0 0.0.255.255 any
+exit
+ip nat inside source list NAT interface GigabitEthernet0/0 overload
+
+!VPN IPSEC
+crypto isakmp policy 1
+encryption des
+hash md5
+authentication pre-share 
+group 2 !Grupo Diffie hellman
+lifetime 86400
+exit
+
+crypto isakmp key PASSWDVPN address 10.0.8.251
+crypto isakmp key PASSWDVPN address 10.0.8.252
+crypto isakmp key PASSWDVPN address 10.0.8.254
+
+!ACL OFICINA REMOTA 1
+ip access-list extended VPN_IPSEC_1
+no permit ip 192.168.10.0 0.0.0.255 192.168.40.0 0.0.0.255
+no permit ip 192.168.20.0 0.0.0.255 192.168.40.0 0.0.0.255
+no permit ip 192.168.30.0 0.0.0.255 192.168.40.0 0.0.0.255
+no permit ip 192.168.99.0 0.0.0.255 192.168.40.0 0.0.0.255
+permit ip 192.168.0.0 0.0.255.255 192.168.40.0 0.0.0.255
+exit
+
+!ACL OFICINA REMOTA 2
+ip access-list extended VPN_IPSEC_2
+permit ip 192.168.10.0 0.0.0.255 192.168.50.0 0.0.0.255
+permit ip 192.168.20.0 0.0.0.255 192.168.50.0 0.0.0.255
+permit ip 192.168.30.0 0.0.0.255 192.168.50.0 0.0.0.255
+permit ip 192.168.99.0 0.0.0.255 192.168.50.0 0.0.0.255
+exit
+
+!ACL OFICINA REMOTA 3
+ip access-list extended VPN_IPSEC_3
+permit ip 192.168.10.0 0.0.0.255 192.168.60.0 0.0.0.255
+permit ip 192.168.20.0 0.0.0.255 192.168.60.0 0.0.0.255
+permit ip 192.168.30.0 0.0.0.255 192.168.60.0 0.0.0.255
+permit ip 192.168.99.0 0.0.0.255 192.168.60.0 0.0.0.255
+exit
+
+
+!METODO DE CIFRADO
+crypto ipsec transform-set VPNIPSEC esp-des esp-md5-hmac
+exit
+
+!OFICINA REMOTA 1
+crypto map CMAP 5 ipsec-isakmp
+set peer 10.0.8.254
+set transform-set VPNIPSEC
+match address VPN_IPSEC_1
+exit
+
+!OFICINA REMOTA 2
+crypto map CMAP 10 ipsec-isakmp
+set peer 10.0.8.252
+set transform-set VPNIPSEC
+match address VPN_IPSEC_2
+exit
+
+!OFICINA REMOTA 3
+crypto map CMAP 15 ipsec-isakmp
+set peer 10.0.8.251
+set transform-set VPNIPSEC
+match address VPN_IPSEC_3
+exit
+
+int g0/0
+crypto map CMAP
+exit
+
+===============================================================
+CISCO-HUB
+===============================================================
+enable
+conf ter 
+hostname RC_HUB
+
+router ospf 10
+ router-id 3.3.3.3
+ exit
+interface GigabitEthernet0/0
+ ip address 172.16.255.6 255.255.255.252
+ ip ospf 10 area 0
+ no shutdown
+interface GigabitEthernet0/1
+ ip address 172.16.255.9 255.255.255.252
+ ip ospf 10 area 0
+ no shutdown
+ exit
+
+
+==============================================================
+SWITCH-CORE
+==============================================================
+enable
+conf ter
+hostname SC_CORE
+ip routing
+router ospf 10
+router-id 4.4.4.4
+exit
+inter g0/0
+no switch
+ip addr 172.16.255.10 255.255.255.252
+ip ospf 10 area 0
+no shut
+exit
+vlan 10 
+name USERS
+vlan 20
+name SERVER_ROOM
+vlan 30 
+name DMZ
+vlan 99
+name Managment
+vlan 999
+name NATIVE
+exit
+
+interface vlan 10
+ip addr 192.168.10.1 255.255.255.0
+ip ospf 10 area 0
+no shut
+exit
+interface vlan 20
+ip addr 192.168.20.1 255.255.255.0
+ip ospf 10 area 0
+no shut
+exit
+interface vlan 30
+ip addr 192.168.30.1 255.255.255.0
+ip ospf 10 area 0
+no shut
+exit
+interface vlan 99
+ip addr 192.168.99.1 255.255.255.0
+ip ospf 10 area 0
+no shut
+exit
+
+interface g0/1
+switchport trunk encapsulation dot1q
+switchport mode trunk
+switchport trunk allowed vlan 10,20
+switchport trunk native vlan 999
+exit
+interface g0/2
+switchport mode acc
+switchport access vlan 30
+exit
+interface g0/3
+switchport mode acc
+switchport access vlan 99
+exit
+
+
+ip dhcp exclud 192.168.10.1 192.168.10.5
+ip dhcp exclud 192.168.20.1 192.168.20.5
+ip dhcp exclud 192.168.30.1 192.168.30.5
+ip dhcp exclud 192.168.99.1 192.168.99.5
+
+ip dhcp pool LAN_10
+network 192.168.10.0 255.255.255.0
+default-router 192.168.10.1
+dns-server 8.8.8.8
+exit
+ip dhcp pool LAN_20
+network 192.168.20.0 255.255.255.0
+default-router 192.168.20.1
+dns-server 8.8.8.8
+exit
+ip dhcp pool LAN_30
+network 192.168.30.0 255.255.255.0
+default-router 192.168.30.1
+dns-server 8.8.8.8
+exit
+ip dhcp pool LAN_99
+network 192.168.99.0 255.255.255.0
+default-router 192.168.99.1
+dns-server 8.8.8.8
+exit
+
+==============================================================
+SWITCH-SERVER
+==============================================================
+enable
+conf ter
+hostname SC_SERVER
+
+vlan 10 
+name USERS
+vlan 20
+name SERVER_ROOM
+vlan 999
+name NATIVE
+exit
+
+interface vlan 20
+ip addr 192.168.20.2 255.255.255.0
+ip helper-address 192.168.20.1
+no shut
+exit
+
+interface g0/0
+switchport trunk encapsulation dot1q
+switchport mode trunk
+switchport trunk native vlan 999
+switchport trunk allowed vlan 10,20
+exit
+
+interface g0/1
+switchport mode access
+switchport access vlan 10
+exit
+
+interface range g0/2-3,g1/0
+switchport mode access
+switchport access vlan 20
+exit
+
+
+==============================================================
+SWITCH-Access
+==============================================================
+enable
+conf ter
+hostname SC_ACCESS
+
+vlan 10 
+name USERS
+exit
+
+interface vlan 10
+ip addr 192.168.10.2 255.255.255.0
+ip helper-address 192.168.10.1
+no shut
+exit
+
+interface range g0/0-3,g1/0-2
+switchport mode access
+switchport access vlan 10
+exit
+
+
+==============================================================
+SWITCH-DMZ
+==============================================================
+enable
+conf ter
+hostname SC_DMZ
+
+vlan 30 
+name DMZ
+exit
+
+interface vlan 30
+ip addr 192.168.30.2 255.255.255.0
+ip helper-address 192.168.30.1
+no shut
+exit
+
+interface range g0/0-3
+switchport mode access
+switchport access vlan 30
+exit
+
+
+
+=====================================================
+MIKROTIK-1
+=====================================================
+ip dhcp-client remove ether1
+/interface bridge
+add name=Bridge_VLAN40
+/interface vlan
+add interface=Bridge_VLAN40 name=vlan40 vlan-id=40
+/ip ipsec peer
+add address=10.0.8.253/32 local-address=10.0.8.254 name=peer1
+/ip ipsec profile
+set [ find default=yes ] dh-group=modp1024 enc-algorithm=des hash-algorithm=\
+    md5 name=ike-profile
+/ip ipsec proposal
+add auth-algorithms=md5 enc-algorithms=des name=ipsec-proposal
+/ip pool
+add name=dhcp_pool1 ranges=192.168.40.2-192.168.40.254
+/ip dhcp-server
+add address-pool=dhcp_pool1 interface=Bridge_VLAN40 name=dhcp1
+/interface bridge port
+add bridge=Bridge_VLAN40 interface=ether2
+add bridge=Bridge_VLAN40 interface=ether3
+add bridge=Bridge_VLAN40 interface=ether4
+/ip address
+add address=192.168.40.1/24 interface=Bridge_VLAN40 network=192.168.40.0
+add address=10.0.8.254/24 interface=ether1 network=10.0.8.0
+/ip dhcp-server network
+add address=192.168.40.0/24 dns-server=8.8.8.8 gateway=192.168.40.1
+/ip firewall nat
+add action=accept chain=srcnat dst-address=192.168.0.0/16 src-address=\
+    192.168.40.0/24
+add action=masquerade chain=srcnat out-interface=ether1
+#Ingresar manualmente la contrasena no la detecta por comandos
+/ip ipsec identity
+add peer=peer1 auth-method=pre-shared-key password=PASSWDVPN
+/ip ipsec policy
+add dst-address=192.168.0.0/16 peer=peer1 proposal=ipsec-proposal \
+    src-address=192.168.40.0/24 tunnel=yes
+/ip route
+add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=10.0.8.1 \
+    routing-table=main scope=30 target-scope=10
+/system identity
+set name=MIK_R1
+
+================================================================
+RC_SPOKE2
+================================================================
+enable
+conf ter
+hostname RC_SPOKE2
+
+!Configuracion de interfaces, enrutamiento y nat
+interface GigabitEthernet0/0
+ ip address 10.0.8.252 255.255.255.0
+ ip nat outside    
+ no shut
+interface GigabitEthernet0/1
+no ip address 192.168.50.1 255.255.255.0
+no ip nat inside
+ no shut
+ exit
+
+ip route 0.0.0.0 0.0.0.0 10.0.8.1
+
+!Configuracion nat
+ip access-list extended NAT
+deny ip 192.168.0.0 0.0.255.255 192.168.0.0 0.0.255.255
+permit ip 192.168.0.0 0.0.255.255 any
+exit
+ip nat inside source list NAT interface GigabitEthernet0/0 overload
+
+ip dhcp excluded 192.168.50.1 192.168.50.5
+ip dhcp pool LAN_50
+network 192.168.50.0 255.255.255.0
+default-router 192.168.50.1
+dns-server 8.8.8.8
+exit
+
+!VPN IPSEC
+crypto isakmp policy 1
+encryption des
+hash md5
+authentication pre-share 
+group 2 !Diffie hellman
+lifetime 86400
+exit
+
+crypto isakmp key PASSWDVPN address 10.0.8.253
+
+!ACL HUB
+ip access-list extended VPN_IPSEC
+permit ip 192.168.50.0 0.0.0.255 192.168.10.0 0.0.0.255
+permit ip 192.168.50.0 0.0.0.255 192.168.20.0 0.0.0.255
+permit ip 192.168.50.0 0.0.0.255 192.168.30.0 0.0.0.255
+permit ip 192.168.50.0 0.0.0.255 192.168.99.0 0.0.0.255
+exit
+
+crypto ipsec transform-set VPNIPSEC esp-des esp-md5-hmac
+exit
+
+crypto map CMAP 10 ipsec-isakmp
+set peer 10.0.8.253
+set transform-set VPNIPSEC
+match address VPN_IPSEC
+exit
+
+int g0/0
+crypto map CMAP
+exit
+
+bridge 1 protocol ieee
+
+interface range g0/1-3
+bridge-group 1
+no shut
+exit
+
+bridge irb
+bridge 1 route ip
+
+interface BVI 1
+ip address 192.168.50.1 255.255.255.0
+ip nat inside
+no shut
+exit
+
+
+=====================================================================
+FORTINET
+=====================================================================
+config system interface
+    edit "port1"
+        set vdom "root"
+        set mode static
+        set allowaccess ping https ssh http
+        set ip 10.0.8.251 255.255.255.0
+        set type physical
+        set alias "WAN"
+        set device-identification enable
+        set lldp-reception disable
+        set lldp-transmission disable
+        set role wan
+    next
+end
+
+config system switch-interface 
+    edit LAN-SWITCH
+        set vdom root
+        set member port2 port3 port4
+end
+config system interface
+    edit "LAN-SWITCH"
+        set vdom "root"
+        set ip 192.168.60.1 255.255.255.0
+        set allowaccess ping
+        set type switch
+        set snmp-index 15
+    next 
+end    
+config system dhcp server
+    edit 1
+        set default-gateway 192.168.60.1
+        set netmask 255.255.255.0
+        set interface "LAN-SWITCH"
+        config ip-range
+            edit 1
+                set start-ip 192.168.60.2
+                set end-ip 192.168.60.254
+            next
+        end
+        set dns-server1 8.8.8.8
+    next
+end
+
+config firewall policy
+    edit 1
+        set name "NAT"
+        set srcintf "LAN-SWITCH"
+        set dstintf "port1"
+        set action accept
+        set srcaddr "all"
+        set dstaddr "all"
+        set schedule "always"
+        set service "ALL"
+        set logtraffic all
+        set nat enable
+    next
+end
+
+config router static
+    edit 1
+        set gateway 10.0.8.1
+        set device "port1"
+        set dst 0.0.0.0/0
+        set distance 1
+    next
+end
+
+config vpn ipsec phase1-interface
+    edit "SPOKE_3"
+        set interface "port1"
+        set peertype any
+        set net-device disable
+        set proposal des-md5
+        set comments "VPN: SPOKE_3 (Created by VPN wizard)"
+        set dhgrp 2
+        set remote-gw 10.0.8.253
+        set psksecret PASSWDVPN
+    next
+end
+
+config vpn ipsec phase2-interface
+    edit "LANREMOTA10"
+        set phase1name "SPOKE_3"
+        set proposal des-md5
+        set dhgrp 2
+        set src-subnet 192.168.60.0 255.255.255.0
+        set dst-subnet 192.168.10.0 255.255.255.0
+    next
+    edit "LANREMOTA20"
+        set phase1name "SPOKE_3"
+        set proposal des-md5
+        set dhgrp 2
+        set src-subnet 192.168.60.0 255.255.255.0
+        set dst-subnet 192.168.20.0 255.255.255.0
+    next
+    edit "LANREMOTA30"
+        set phase1name "SPOKE_3"
+        set proposal des-md5
+        set dhgrp 2
+        set src-subnet 192.168.60.0 255.255.255.0
+        set dst-subnet 192.168.30.0 255.255.255.0
+    next
+    edit "LANREMOTA99"
+        set phase1name "SPOKE_3"
+        set proposal des-md5
+        set dhgrp 2
+        set src-subnet 192.168.60.0 255.255.255.0
+        set dst-subnet 192.168.99.0 255.255.255.0
+    next
+end
+
+config firewall address
+    edit "SPOKE_3_local_subnet_1"
+        set allow-routing enable
+        set subnet 192.168.60.0 255.255.255.0
+    next 
+    edit "SPOKE_3_remote_subnet_1"
+        set allow-routing enable
+        set subnet 192.168.10.0 255.255.255.0
+    next 
+    edit "SPOKE_3_remote_subnet_2"
+        set allow-routing enable
+        set subnet 192.168.20.0 255.255.255.0
+    next 
+    edit "SPOKE_3_remote_subnet_3"
+        set allow-routing enable
+        set subnet 192.168.30.0 255.255.255.0
+    next 
+    edit "SPOKE_3_remote_subnet_4"
+        set allow-routing enable
+        set subnet 192.168.99.0 255.255.255.0
+    next 
+end  
+
+config firewall addrgrp
+    edit "SPOKE_3_local"
+        set member "SPOKE_3_local_subnet_1"
+        set comment "VPN: SPOKE_3 (Created by VPN wizard)"
+        set allow-routing enable
+    next
+    edit "SPOKE_3_remote"
+        set member "SPOKE_3_remote_subnet_1" "SPOKE_3_remote_subnet_2" "SPOKE_3_remote_subnet_3" "SPOKE_3_remote_subnet_4"
+        set comment "VPN: SPOKE_3 (Created by VPN wizard)"
+        set allow-routing enable
+    next
+end
+
+config firewall policy
+    edit 2
+        set name "vpn_SPOKE_3_local_0"
+        set srcintf "LAN-SWITCH"
+        set dstintf "SPOKE_3"
+        set action accept
+        set srcaddr "SPOKE_3_local"
+        set dstaddr "SPOKE_3_remote"
+        set schedule "always"
+        set service "ALL"
+        set comments "VPN: SPOKE_3 (Created by VPN wizard)"
+    next
+    edit 3
+        set name "vpn_SPOKE_3_remote_0"
+        set srcintf "SPOKE_3"
+        set dstintf "LAN-SWITCH"
+        set action accept
+        set srcaddr "SPOKE_3_remote"
+        set dstaddr "SPOKE_3_local"
+        set schedule "always"
+        set service "ALL"
+        set comments "VPN: SPOKE_3 (Created by VPN wizard)"
+    next
+end
+
+config router static
+    edit 1
+        set gateway 10.0.8.1
+        set distance 1
+        set device "port1"
+    next
+    edit 2
+        set device "SPOKE_3"
+        set comment "VPN: SPOKE_3 (Created by VPN wizard)"
+        set dstaddr "SPOKE_3_remote"
+    next
+    edit 3
+        set distance 254
+        set comment "VPN: SPOKE_3 (Created by VPN wizard)"
+        set blackhole enable
+        set dstaddr "SPOKE_3_remote"
+    next
+end
+
+
+
+# INSTALACION AGENTE LINUX
+
+wget https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.14.4-1_amd64.deb && sudo WAZUH_MANAGER='10.0.8.250' WAZUH_AGENT_GROUP='default' WAZUH_AGENT_NAME='syslab' dpkg -i ./wazuh-agent_4.14.4-1_amd64.deb
+
+
+sudo systemctl daemon-reload
+sudo systemctl enable wazuh-agent
+sudo systemctl start wazuh-agent
+
+#VERIFICAR PARAMETROS Y LOGS
+
+sudo nano /var/ossec/etc/ossec.conf
+sudo tail -f /var/ossec/logs/ossec.log
